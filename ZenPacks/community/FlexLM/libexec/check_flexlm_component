@@ -1,0 +1,215 @@
+#!/usr/bin/env python
+#
+
+#
+# Run lmstat against the specified port[s], returning a JSON structure
+# to Zenoss with the results
+#
+
+import sys
+import getopt
+import subprocess
+import re
+import json
+
+# Dict to map severity names to integers
+zenSeverity = { 'Critical': 5,
+                'Error': 4,
+                'Warning': 3,
+                'Info': 2,
+                'Debug': 1,
+                'Clear': 0 }
+
+def usage(error=''):
+    if error:
+        print error
+    print 'usage: ' + sys.argv[0] + ' --Host hostname --port port[,port[...]] [--vendor vendor] [--lmutil lmutilbinary]'
+    sys.exit(1)
+
+def add_event(licStatus, device, severity, message, component='', eclass='', force=False):
+    # Make sure we have an events list in licStatus
+    if 'events' not in licStatus:
+        licStatus['events'] = []
+    eventClass = '/Status/FlexLM/'+ eclass
+    if zenSeverity[severity] > 0 or force:
+      #licStatus['events'].append({'component': component,
+      licStatus['events'].append({'severity': zenSeverity[severity],
+				  'component': component,
+				  'event_key': 'FlexLM_error',
+                                  'summary': message})
+#                                  'eventClass': eventClass,
+#                                  'summary': message,
+#                                  'message': message,
+#                                  'device': device})
+
+
+# Call lmstat to get the license status of the specified host:port:[vendor]
+def get_lic(licStatus, server, port, vendor='', feature=''):
+    global lmutil
+
+    lmutilCommand = [lmutil, 'lmstat', '-A', '-c', port +'@'+ server]
+    if vendor:
+	if feature:
+            lmutilCommand = [lmutil, 'lmstat', '-S', vendor, '-f', feature, '-c', port +'@'+ server]
+	else:
+            lmutilCommand = [lmutil, 'lmstat', '-S', vendor, '-c', port +'@'+ server]
+    elif feature:
+        lmutilCommand = [lmutil, 'lmstat', '-f', feature, '-c', port +'@'+ server]
+    try:
+        output = subprocess.check_output(lmutilCommand)
+    except subprocess.CalledProcessError, e:
+        output = e.output       # If command failed, replace output with error
+
+    # Define regular expressions for license counts/errors
+    downRe = re.compile('[Cc]annot|[Uu]nable|refused|down|[Ww]in[sS]ock')
+    vendorHeadRe = re.compile('^Vendor daemon status')
+    vendorRe = re.compile('^\s+(\S+?):\s+(\S+)\s+(.*)$')
+    licRe = re.compile('Users of (.*): .* of ([0-9]+) .* issued; .* of ([0-9]+) .* use')
+    if vendor:
+        featRe = re.compile('Feature usage info:|Users of features served by '+ vendor +':')
+    else:
+        featRe = re.compile('Feature usage info:')
+
+    vendor = ''                 # Contains the name of the current vendor
+    features = 0                # Start with 0 features
+
+    for line in output.split('\n'):
+        # Toss header
+        if 'Copyright (c)' in line or 'Flexible License Manager status on' in line:
+            continue
+        # and blank lines
+        if line == '':
+            continue
+        # Count features
+        match = featRe.search(line)
+        if match != None:
+            features = features + 1
+        # Once we have at least one feature, start counting licenses
+        if features == 0:
+            # Check for server down
+            match = downRe.search(line)
+            if match != None:
+                add_event(licStatus, server, 'Critical', port +'@'+ server +': '+ line, feature)
+                break           # Server is down, no need to parse more
+
+            # Generate an event for each vendor indictating up/down
+            if vendorHeadRe.search(line):
+                vendor = True
+                continue
+            if vendor:
+                match = vendorRe.search(line)
+                if match != None:
+                    vendor = match.group(1)
+                    if match.group(2) == 'UP': # Vendor is up
+                        add_event(licStatus, server, 'Clear',  'License vendor '+ vendor +' '+ match.group(3) +' is '+ match.group(2), feature, vendor)
+                    else:
+                       add_event(licStatus, server, 'Warning', 'License vendor '+ vendor +' '+ match.group(3) +' is '+ match.group(2), feature, vendor, component=feature)
+
+        else:                   # Server is up and we found features, start parsing
+            match = licRe.search(line)
+            if match != None:
+                avail_lic = float(match.group(2)) - float(match.group(3))
+		if not feature:
+                    feature = vendor +'_'+ match.group(1)
+                if 'values' not in licStatus:
+                    licStatus['values'] = {}
+		if feature not in licStatus['values']:
+                    licStatus['values'][feature] = {}
+                if 'total' in licStatus['values'][feature]:
+                    licStatus['values'][feature]['total'] = licStatus[match.group(0)]['total'] + float(match.group(2))
+                else:
+                    licStatus['values'][feature]['total'] = float(match.group(2))
+                if 'inuse' in licStatus['values'][feature]:
+                    licStatus['values'][feature]['inuse'] = licStatus[match.group(0)]['inuse'] + float(match.group(3))
+                else:
+                    licStatus['values'][feature]['inuse'] = float(match.group(3))
+
+
+# Check the status of all licenses given the licStatus structure
+def check_lic(licStatus, server):
+    # Check for any licenses that are fully in use and generate an event
+    if 'values' in licStatus:
+        for feature in licStatus['values']:
+            for index in licStatus['values'][feature]:
+	        if 'total' in index:
+	            #feature = index[:-6]
+                    #values = licStatus['values'][feature]
+                    #if (values['total'] - values['inuse'] == 0):
+                    if (licStatus['values'][feature]['total'] - licStatus['values'][feature]['inuse'] == 0):
+                        add_event(licStatus, server, 'Warning', 'Maximum usage warning for '+ feature, feature, feature)
+                    else:
+                        add_event(licStatus, server, 'Clear', str(licStatus['values'][feature]['inuse']) +' of '+ str(licStatus['values'][feature]['total']) +' in use for '+ feature, 'Licenses', feature)
+
+# Parse command line
+try:
+    opts,args = getopt.getopt(sys.argv[1:], 'hH:l:p:f:v:D', ['help', 'Host=', 'ports=', 'vendor=', 'feature=', 'lmutil=', 'debug'])
+except getopt.GetoptError, err:
+    print str(err)
+    usage()
+
+hostname = 'localhost'
+ports = []
+vendor = None
+feature = None
+lmutil = '/opt/zenoss/local/bin/lmutil'
+debug = False
+for o, a in opts:
+    if o in ('-h', '--help'):
+        usage()
+    elif o in ('-H', '--Host'):
+        hostname = a
+    elif o in ('-l', '--lmutil'):
+        lmutil = a
+    elif o in ('-p', '--port'):
+        ports = a.split(',')
+    elif o in ('-v', '--vendor'):
+        vendor = a
+    elif o in ('-f', '--feature'):
+        feature = a
+    elif o in ('-D', '--debug'):
+        debug = True
+
+if len(ports) == 0:
+    usage('No ports specified!')
+if len(ports) > 1 and vendor:
+    usage('Only one port can be used if specifying a vendor.')
+if len(ports) > 1 and feature:
+    usage('Only one port can be used if specifying a feature.')
+
+if debug:
+    if vendor:
+	if feature:
+            print "Scanning licenses on %s, port(s) %s, vendor/feature %s/%s..." % (hostname, ','.join(ports), vendor, feature)
+	else:
+            print "Scanning licenses on %s, port(s) %s, vendor %s..." % (hostname, ','.join(ports), vendor)
+    elif feature:
+        print "Scanning licenses on %s, port(s) %s, feature %s..." % (hostname, ','.join(ports), feature)
+    else:
+        print "Scanning licenses on %s, port(s) %s..." % (hostname, ','.join(ports))
+
+
+# Structure for license status, built so it can be converted directly to
+# JSON for Zenoss. It is a dict containing two keys, 'values' and 'events'.
+# 'values' is a dict keyed by feature, with the values being a dict
+#    storing the total and inuse counts for each feature
+# 'events' is an array of events. get_lic() will log an event for any
+#    server that is down, and an event for the status of each license feature
+#    check_lic() will log an event for the status of each individual license
+#    Each events element is a dict keyed by 'severity' and 'summary'
+licStatus = {}
+
+# Loop through ports checking the licenses on each one
+for port in ports:
+    get_lic(licStatus,hostname,port,vendor,feature)
+
+# If no events, put in a bogus clear event
+if 'events' not in licStatus or len(licStatus['events']) == 0:
+    add_event(licStatus, hostname, 'Clear', "OK: All servers up. All Modules/Features Available", component=feature, eclass='', force=True)
+
+check_lic(licStatus,hostname)
+if debug:                       # Pretty-print if debugging
+    print json.dumps(licStatus, sort_keys=True,
+                     indent=4, separators=(',', ': '))
+else:
+    print json.dumps(licStatus)
+

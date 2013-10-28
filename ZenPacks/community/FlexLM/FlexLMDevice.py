@@ -24,7 +24,7 @@ class FlexLMDevice(Device):
     )
 
     # This is where we extend the standard relationships of a device to add
-    # our "flexLMLicenses" relationship that must be filled with components
+    # our "FlexLMLicenses" relationship that must be filled with components
     # of our custom "FlexLMLicense" class.
     _relations = Device._relations + (
         ('licenseFlexLM', ToManyCont(ToOne,

@@ -71,6 +71,7 @@ class FlexLM(CommandPlugin):
 		vendor = ''		# Clear vendor info
 		vendor_status = ''
 		vendor_version = ''
+		vendor_count = vendor_count + 1
             match = vendorMatcher.search(line)	# Get license vendor
             if match:
 		vendor = match.group('vendor')

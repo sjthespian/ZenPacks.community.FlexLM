@@ -34,5 +34,5 @@ class FlexLMLicenseInfo(ComponentInfo):
     feature = ProxyProperty('feature')
     port = ProxyProperty('port')
     total = ProxyProperty('total')
-#    inuse = ProxyProperty('inuse')
+    #inuse = ProxyProperty('inuse')
 

@@ -12,24 +12,22 @@
 # This makes this the perfect place to alter lower-level stock behavior
 # through monkey-patching.
 
-# import Globals
-#
-# from Products.ZenModel.ZenPack import ZenPack as ZenPackBase
-# from Products.ZenUtils.Utils import unused
-#
-# unused(Globals)
-#
-#
-# class ZenPack(ZenPackBase):
-#
-#     # All zProperties defined here will automatically be created when the
-#     # ZenPack is installed.
-#     packZProperties = [
-#         ('zExampleString', 'default value', 'string'),
-#         ('zExampleInt', 411, 'int'),
-#         ('zExamplePassword', 'notsecure', 'password'),
-#         ]
-#
+import Globals
+
+from Products.ZenModel.ZenPack import ZenPack as ZenPackBase
+from Products.ZenUtils.Utils import unused
+
+unused(Globals)
+
+class ZenPack(ZenPackBase):
+
+    # All zProperties defined here will automatically be created when the
+    # ZenPack is installed.
+    packZProperties = [
+	('zFlexLMlmstatPath', 'default value', '/usr/bin/lmstat'),
+	('zFlexLMlmutilPath', 'default value', '/opt/zenoss/local/bin/lmutil'),
+        ]
+
 #     def install(self, dmd):
 #         ZenPackBase.install(self, dmd)
 #

@@ -20,21 +20,19 @@
         />
     -->
 
-<!--
     <resourceDirectory
-        name="FlexLMDevice"
+        name="FlexLM"
         directory="resources"
         />
 
     <viewlet
         name="js-FlexLM"
-        for=".FlexLMDevice.FlexLMDevice"
-        paths="/++resource++FlexLM/FlexLM.js"
+        paths="/++resource++FlexLM/js/FlexLM.js"
         weight="10"
+        for="..FlexLMDevice.FlexLMDevice"
         manager="Products.ZenUI3.browser.interfaces.IJavaScriptSrcManager"
         class="Products.ZenUI3.browser.javascript.JavaScriptSrcBundleViewlet"
         permission="zope2.Public"
         />
--->
 
 </configure>

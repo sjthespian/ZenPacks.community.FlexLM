@@ -36,5 +36,4 @@ class IFlexLMLicenseInfo(IComponentInfo):
     feature = schema.Int(title=_t('FlexLM License Feature'))
     port = schema.Int(title=_t('FlexLM Server Port'))
     total = schema.Int(title=_t('FlexLM Total Licenses'))
-#    inuse = schema.Int(title=_t('FlexLM InUse Licenses'))
     
